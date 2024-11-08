@@ -1,5 +1,8 @@
 selenium
 undetected-chromedriver
+webdriver-manager
 
 fastapi
 uvicorn
+
+pyperclip

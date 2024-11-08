@@ -8,15 +8,15 @@ from typing import List, Optional, Dict, Union
 from pychatgpt import ChatGPT
 
 app = FastAPI()
-chat = None
-
-class RequestBody(BaseModel):
-    model: str
-    prompt: str
 
 class Message(BaseModel):
     role: str
     content: str
+
+class RequestBody(BaseModel):
+    messages: List[Message]
+    model: str
+    response_format: Dict[str, str]
 
 class Choice(BaseModel):
     message: Message
@@ -32,17 +32,18 @@ class OpenAIResponse(BaseModel):
     choices: List[Choice]
     usage: Dict[str, int]
 
-@app.on_event("startup")
-async def startup():
-    global chat
-    chat = ChatGPT(headless=False)
-    print("Initialization DONE.", flush=True)
-
 @app.post("/v1/chat/completions", response_model=OpenAIResponse)
 async def generate_response(request: RequestBody):
-    global chat
+    chat = ChatGPT(headless=True, uc_driver=True)
 
-    res = chat.predict(request.prompt)
+    prompt = "\n".join([msg.content for msg in request.messages])
+    if request.response_format["type"] == "json_object":
+        prompt += "\nYour response should be in json ONLY!"
+    print(f"\nprompt:\n{prompt}", flush=True)
+
+    result = chat.predict(prompt)
+
+    response_text = "\n".join([x["content"] for x in result["response"]])
     response = {
         "id": str(uuid.uuid4()),
         "object": "text_completion",
@@ -51,7 +52,7 @@ async def generate_response(request: RequestBody):
         "choices": [{
             "message": {
                 "role": "assistant",
-                "content": res["response"]
+                "content": response_text
             },
             "index": 0,
             "logprobs": None,
@@ -59,8 +60,8 @@ async def generate_response(request: RequestBody):
         }],
         "usage": {
             "prompt_tokens": len(request.prompt.split()),
-            "completion_tokens": len(res["response"].split()),
-            "total_tokens": len(request.prompt.split()) + len(res["response"].split())
+            "completion_tokens": len(response_text.split()),
+            "total_tokens": len(request.prompt.split()) + len(response_text.split())
         }
     }
     

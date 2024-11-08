@@ -1,13 +1,19 @@
 """
 ChatGPT API Module
 """
+import os
+import platform
 import time
+import pyperclip
 
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
+
+from webdriver_manager.chrome import ChromeDriverManager
 
 import undetected_chromedriver as uc
 
@@ -19,10 +25,12 @@ LOGIN_URL = "https://chatgpt.com"
 
 class ChatGPT:
     def __init__(self, auth_file_path=None, username=None, 
-                 password=None, headless=False, login=False):
+                 password=None, headless=False, uc_driver=True, 
+                 login=False):
         self._is_ready = False
         self._driver = None
         self.headless = headless
+        self.uc_driver = uc_driver
         self.login = login
 
         if login:
@@ -105,19 +113,49 @@ class ChatGPT:
         return True
 
     def _build_driver(self):
-        options = webdriver.ChromeOptions()
-        if self.headless:
-            options.add_argument("--headless")
+        if self.uc_driver:
+            options = uc.ChromeOptions()
+            if self.headless:
+                options.add_argument('--headless')
+            
             options.add_argument('--disable-gpu')
             options.add_argument('--no-sandbox')
+            options.add_argument('--window-size=1920,1080')
             options.add_argument('--disable-dev-shm-usage')
-        # driver = uc.Chrome(options=options)
-        driver = webdriver.Chrome(options=options)
+            options.add_argument('--start-maximized')
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+            os_name = platform.system()
+            if os_name == "Linux":
+                executable = "chromedriver-linux"
+            elif os_name == "Darwin":  # macOS
+                executable = "chromedriver-mac"
+            driver = uc.Chrome(
+                driver_executable_path=os.path.join(os.path.dirname(__file__), f"../{executable}"),
+                options=options
+            )
+        else:
+            options = webdriver.ChromeOptions()
+            if self.headless:
+                options.add_argument("--headless")
+                options.add_argument('--disable-gpu')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--disable-dev-shm-usage')
+                options.add_argument("--enable-javascript")
+                options.add_argument("--window-size=1920,1080")
+
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(
+                service=service,
+                options=options
+            )
         self._driver = driver
         return driver
 
     def _traverse_response_tree(self, root, responses):
         children = root.find_elements(By.XPATH, "./*")
+        print("children:", len(children))
         for elem in children:
             if elem.tag_name in ["p", "li"]:
                 responses.append({
@@ -139,10 +177,20 @@ class ChatGPT:
     def predict(self, prompt):
         """Retrieve the response of a prompt."""
         driver = self._driver
+        os_name = platform.system()
 
-        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.presence_of_element_located((By.XPATH, "//div[@id='prompt-textarea']//p")))
+        # Copy the text to the clipboard
+        pyperclip.copy(prompt)
+
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
+            EC.visibility_of_element_located((
+                By.XPATH, "//div[@id='prompt-textarea']//p")))
         input_box = driver.find_element(by=By.XPATH, value="//div[@id='prompt-textarea']//p")
-        input_box.send_keys(prompt)
+        input_box.click()
+        if os_name == "Linux":
+            input_box.send_keys(Keys.CONTROL, 'v')
+        elif os_name == "Darwin":  # macOS
+            input_box.send_keys(Keys.COMMAND, 'v')
         input_box.send_keys(Keys.RETURN)
 
         print("Generating...")
@@ -150,7 +198,11 @@ class ChatGPT:
         WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until_not(EC.presence_of_element_located((By.XPATH, "//button[@data-testid='stop-button']")))
         
         print("Finish generating...")
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
+            EC.presence_of_element_located((
+                By.XPATH, "//button[@data-testid='copy-turn-action-button']")))
         response_elements = driver.find_elements(by=By.XPATH, value="//div[@data-message-author-role='assistant']")
+        print("response_elements:", len(response_elements))
         response_content = response_elements[-1].find_element(By.XPATH, "//div[contains(@class, 'markdown')]")
         
         result_json = dict()
