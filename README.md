@@ -135,6 +135,11 @@ chat.delete_current_chat()
 chat.new_chat()
 ```
 
+# Run as Docker container
+```
+docker compose down && docker compose -f docker-compose.yml up -d --build
+```
+
 ## Disclaimer
 
 This project is not affiliated with OpenAI in any way. Use the code at your own risk. The author is not responsible for any misuse or damage. Please read the [OpenAI Terms of Service](https://beta.openai.com/terms) before using this project.

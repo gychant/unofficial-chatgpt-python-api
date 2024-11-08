@@ -1,1 +1,1 @@
-from .pychatgpt import ChatGPT
+from .core import ChatGPT

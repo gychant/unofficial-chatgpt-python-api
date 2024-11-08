@@ -1,2 +1,5 @@
 selenium
 undetected-chromedriver
+
+fastapi
+uvicorn

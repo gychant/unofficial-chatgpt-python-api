@@ -8,30 +8,36 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+
 import undetected_chromedriver as uc
 
 LOGIN_PAGE_TIME_OUT = 10
-NOTIFICATION_WINDOW_TIME_OUT = 5
+NOTIFICATION_WINDOW_TIME_OUT = 30
 RESPONSE_GENERATION_TIME_OUT = 300
 
-LOGIN_URL = "https://chat.openai.com"
+LOGIN_URL = "https://chatgpt.com"
 
 class ChatGPT:
     def __init__(self, auth_file_path=None, username=None, 
-                 password=None, headless=True):
+                 password=None, headless=False, login=False):
         self._is_ready = False
         self._driver = None
         self.headless = headless
-        self.username = username
-        self.password = password
-        self.auth_file_path = auth_file_path
-        if (not self.username or not self.password) and self.auth_file_path:
-            self._read_login_credentials()
-            
-        if self.username and self.password:
-            self._setup_engine()
+        self.login = login
+
+        if login:
+            self.username = username
+            self.password = password
+            self.auth_file_path = auth_file_path
+            if (not self.username or not self.password) and self.auth_file_path:
+                self._read_login_credentials()
+                
+            if self.username and self.password:
+                self._setup_engine()
+            else:
+                print("Error: login credentials are not provided.")
         else:
-            print("Error: login credentials are not provided.")
+            self._setup_engine()
 
     def _read_login_credentials(self):
         """Read login credentials from file."""
@@ -55,34 +61,35 @@ class ChatGPT:
         print("Initialized driver...")
         driver.get(LOGIN_URL)
 
-        # Click the Log In button
-        driver.find_element(By.XPATH, "//button/div[text()='Log in']").click()
+        if self.login:
+            # Click the Log In button
+            driver.find_element(By.XPATH, "//button/div[text()='Log in']").click()
 
-        WebDriverWait(driver, timeout=LOGIN_PAGE_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
+            WebDriverWait(driver, timeout=LOGIN_PAGE_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
 
-        # Enter account email
-        driver.find_element(By.XPATH, '//input[@id="username"]').send_keys(self.username)
+            # Enter account email
+            driver.find_element(By.XPATH, '//input[@id="username"]').send_keys(self.username)
 
-        # Click the Continue button
-        driver.find_element(By.XPATH, '//button[@type="submit"]').click()
+            # Click the Continue button
+            driver.find_element(By.XPATH, '//button[@type="submit"]').click()
 
-        # Enter account password
-        driver.find_element(By.XPATH, '//input[@id="password"]').send_keys(self.password)
+            # Enter account password
+            driver.find_element(By.XPATH, '//input[@id="password"]').send_keys(self.password)
 
-        # Click the unhidden Continue button
-        driver.find_elements(By.XPATH, '//button[@type="submit"]')[1].click()
+            # Click the unhidden Continue button
+            driver.find_elements(By.XPATH, '//button[@type="submit"]')[1].click()
 
-        # Handle notification windows
-        while True:
-            try:
-                # Click the Next buttons if exist
-                WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Next']")))
-                driver.find_element(By.XPATH, "//div[text()='Next']").click()
-            except:
-                # Click the Done button in the end
-                WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Done']")))
-                driver.find_element(By.XPATH, "//div[text()='Done']").click()
-                break
+            # Handle notification windows
+            while True:
+                try:
+                    # Click the Next buttons if exist
+                    WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Next']")))
+                    driver.find_element(By.XPATH, "//div[text()='Next']").click()
+                except:
+                    # Click the Done button in the end
+                    WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Done']")))
+                    driver.find_element(By.XPATH, "//div[text()='Done']").click()
+                    break
         self._is_ready = True
 
     def _is_alive(self):
@@ -101,12 +108,16 @@ class ChatGPT:
         options = webdriver.ChromeOptions()
         if self.headless:
             options.add_argument("--headless")
-        driver = uc.Chrome(options=options)
+            options.add_argument('--disable-gpu')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+        # driver = uc.Chrome(options=options)
+        driver = webdriver.Chrome(options=options)
         self._driver = driver
         return driver
 
     def _traverse_response_tree(self, root, responses):
-        children = root.find_elements(By.XPATH, "./*")        
+        children = root.find_elements(By.XPATH, "./*")
         for elem in children:
             if elem.tag_name in ["p", "li"]:
                 responses.append({
@@ -128,21 +139,24 @@ class ChatGPT:
     def predict(self, prompt):
         """Retrieve the response of a prompt."""
         driver = self._driver
-        input_box = driver.find_element(by=By.XPATH, value='//textarea[contains(@placeholder, "Send a message")]')
+
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(EC.presence_of_element_located((By.XPATH, "//div[@id='prompt-textarea']//p")))
+        input_box = driver.find_element(by=By.XPATH, value="//div[@id='prompt-textarea']//p")
         input_box.send_keys(prompt)
         input_box.send_keys(Keys.RETURN)
 
+        print("Generating...")
         # Wait for results fully loaded
-        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Regenerate response']")))
+        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until_not(EC.presence_of_element_located((By.XPATH, "//button[@data-testid='stop-button']")))
         
-        response_elements = driver.find_elements(by=By.CSS_SELECTOR, value='div.text-base')
+        print("Finish generating...")
+        response_elements = driver.find_elements(by=By.XPATH, value="//div[@data-message-author-role='assistant']")
         response_content = response_elements[-1].find_element(By.XPATH, "//div[contains(@class, 'markdown')]")
         
         result_json = dict()
         result_json["prompt"] = prompt
         result_json["response"] = list()
         self._traverse_response_tree(response_content, result_json["response"])
-        
         return result_json
     
     def new_chat(self):
