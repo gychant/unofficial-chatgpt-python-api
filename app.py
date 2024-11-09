@@ -21,7 +21,7 @@ class RequestBody(BaseModel):
 class Choice(BaseModel):
     message: Message
     index: int
-    logprobs: Optional[Union[None, dict, float]]  # Assuming logprobs can be None, dict, or float
+    logprobs: Optional[Union[None, dict, float]]
     finish_reason: str
 
 class OpenAIResponse(BaseModel):
@@ -38,12 +38,16 @@ async def generate_response(request: RequestBody):
 
     prompt = "\n".join([msg.content for msg in request.messages])
     if request.response_format["type"] == "json_object":
-        prompt += "\nYour response should be in json ONLY!"
-    print(f"\nprompt:\n{prompt}", flush=True)
+        prompt += "\n\nYour response should be in json format ONLY and rendered in text form!"
+    # print(f"\nprompt:\n{prompt}", flush=True)
 
     result = chat.predict(prompt)
 
     response_text = "\n".join([x["content"] for x in result["response"]])
+    response_text = "{" + "{".join(response_text.split("{")[1:])
+    print("\nresponse_text:")
+    print(response_text)
+
     response = {
         "id": str(uuid.uuid4()),
         "object": "text_completion",
@@ -59,9 +63,9 @@ async def generate_response(request: RequestBody):
             "finish_reason": "stop"
         }],
         "usage": {
-            "prompt_tokens": len(request.prompt.split()),
+            "prompt_tokens": len(prompt.split()),
             "completion_tokens": len(response_text.split()),
-            "total_tokens": len(request.prompt.split()) + len(response_text.split())
+            "total_tokens": len(prompt.split()) + len(response_text.split())
         }
     }
     

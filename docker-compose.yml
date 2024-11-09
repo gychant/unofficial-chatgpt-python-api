@@ -1,6 +1,6 @@
 services:
   backend:
-    container_name: pychatopt-backend
+    container_name: pychatgpt-backend
     build: ./
     ports:
       - 8080:8080

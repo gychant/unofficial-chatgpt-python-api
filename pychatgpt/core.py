@@ -4,7 +4,6 @@ ChatGPT API Module
 import os
 import platform
 import time
-import pyperclip
 
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,16 +11,18 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import StaleElementReferenceException
 
 from webdriver_manager.chrome import ChromeDriverManager
 
 import undetected_chromedriver as uc
 
 LOGIN_PAGE_TIME_OUT = 10
-NOTIFICATION_WINDOW_TIME_OUT = 30
-RESPONSE_GENERATION_TIME_OUT = 300
+NOTIFICATION_WINDOW_TIME_OUT = 20
+RESPONSE_GENERATION_TIME_OUT = 30
 
 LOGIN_URL = "https://chatgpt.com"
+os_name = platform.system()
 
 class ChatGPT:
     def __init__(self, auth_file_path=None, username=None, 
@@ -126,13 +127,14 @@ class ChatGPT:
             options.add_argument('--disable-blink-features=AutomationControlled')
             options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
-            os_name = platform.system()
             if os_name == "Linux":
                 executable = "chromedriver-linux"
             elif os_name == "Darwin":  # macOS
                 executable = "chromedriver-mac"
+            else:
+                executable = "chromedriver-win64"
             driver = uc.Chrome(
-                driver_executable_path=os.path.join(os.path.dirname(__file__), f"../{executable}"),
+                driver_executable_path=os.path.join(os.path.dirname(__file__), f"../drivers/{executable}"),
                 options=options
             )
         else:
@@ -144,6 +146,7 @@ class ChatGPT:
                 options.add_argument('--disable-dev-shm-usage')
                 options.add_argument("--enable-javascript")
                 options.add_argument("--window-size=1920,1080")
+                options.add_argument("--remote-debugging-port=9222")
 
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(
@@ -155,21 +158,16 @@ class ChatGPT:
 
     def _traverse_response_tree(self, root, responses):
         children = root.find_elements(By.XPATH, "./*")
-        print("children:", len(children))
         for elem in children:
             if elem.tag_name in ["p", "li"]:
                 responses.append({
                     "type": "text",
-                    "content": elem.text
+                    "content": elem.text.strip()
                 })
-            elif elem.tag_name == "pre":
-                parts = elem.text.split("\n")
-                code_lang = parts[0]
-                code_snippet = "\n".join(parts[2:])
+            elif elem.tag_name in ["pre", "code"]:
                 responses.append({
                     "type": "code",
-                    "lang": code_lang,
-                    "content": code_snippet
+                    "content": elem.text.strip()
                 })
             else:
                 self._traverse_response_tree(elem, responses)
@@ -177,33 +175,47 @@ class ChatGPT:
     def predict(self, prompt):
         """Retrieve the response of a prompt."""
         driver = self._driver
-        os_name = platform.system()
 
-        # Copy the text to the clipboard
-        pyperclip.copy(prompt)
-
+        xpath = "//div[@id='prompt-textarea']//p"
         WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
             EC.visibility_of_element_located((
-                By.XPATH, "//div[@id='prompt-textarea']//p")))
-        input_box = driver.find_element(by=By.XPATH, value="//div[@id='prompt-textarea']//p")
-        input_box.click()
-        if os_name == "Linux":
-            input_box.send_keys(Keys.CONTROL, 'v')
-        elif os_name == "Darwin":  # macOS
-            input_box.send_keys(Keys.COMMAND, 'v')
-        input_box.send_keys(Keys.RETURN)
+                By.XPATH, xpath)))
+        input_box = driver.find_element(By.XPATH, xpath)
+        driver.execute_script("arguments[0].innerHTML = arguments[1];", input_box, prompt)
 
-        print("Generating...")
-        # Wait for results fully loaded
-        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until_not(EC.presence_of_element_located((By.XPATH, "//button[@data-testid='stop-button']")))
-        
-        print("Finish generating...")
+        xpath = "//button[@data-testid='send-button']"
         WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
-            EC.presence_of_element_located((
+            EC.element_to_be_clickable((By.XPATH, xpath)))
+        send_button = driver.find_element(By.XPATH, xpath)
+        driver.execute_script("arguments[0].click();", send_button)
+
+        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until(
+            EC.visibility_of_element_located((By.XPATH, "//button[@data-testid='stop-button']")))
+        print("Generating...", flush=True)
+
+        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until(
+            EC.invisibility_of_element_located((By.XPATH, "//button[@data-testid='stop-button']")))
+        WebDriverWait(driver, timeout=RESPONSE_GENERATION_TIME_OUT).until(
+            EC.visibility_of_element_located((By.XPATH, "//button[@data-testid='send-button']")))
+        """
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
+            EC.visibility_of_element_located((
                 By.XPATH, "//button[@data-testid='copy-turn-action-button']")))
-        response_elements = driver.find_elements(by=By.XPATH, value="//div[@data-message-author-role='assistant']")
+        """
+        print("Finish generating...", flush=True)
+
+        # """
+        xpath = "//div[@data-message-author-role='assistant']"
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
+            EC.presence_of_element_located((By.XPATH, xpath)))
+        response_elements = driver.find_elements(by=By.XPATH, value=xpath)
         print("response_elements:", len(response_elements))
-        response_content = response_elements[-1].find_element(By.XPATH, "//div[contains(@class, 'markdown')]")
+        # """
+        
+        xpath = "//div[contains(@class, 'markdown')]"
+        WebDriverWait(driver, timeout=NOTIFICATION_WINDOW_TIME_OUT).until(
+            EC.presence_of_element_located((By.XPATH, xpath)))
+        response_content = response_elements[-1].find_element(By.XPATH, xpath)
         
         result_json = dict()
         result_json["prompt"] = prompt

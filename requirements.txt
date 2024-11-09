@@ -4,5 +4,3 @@ webdriver-manager
 
 fastapi
 uvicorn
-
-pyperclip

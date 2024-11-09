@@ -1,7 +1,8 @@
 from pychatgpt import ChatGPT
 
+chat = ChatGPT(headless=False, uc_driver=True)
+
 while True:
-    chat = ChatGPT(headless=False, uc_driver=True)
     res = chat.predict("""
 As a genius expert, your task is to understand the content and provide
         the parsed objects in json that match the following json_schema:
@@ -557,9 +558,10 @@ Below is the corresponding values of different columns in a table row:
 	REVENUE: 950.15
 	PROFIT: 560.53
                        
-Your response should be in json ONLY!
+Your response should be in json format ONLY and rendered in text form!
 """)
+    response = "\n".join([x["content"] for x in res["response"]])
+    response = "{" + "{".join(response.split("{")[1:])
     print("Final response:")
-    print("\n".join([x["content"] for x in res["response"]]))
-    chat._driver.quit()
+    print(response)
     input()
